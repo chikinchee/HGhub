@@ -1,0 +1,68 @@
+name: Android ARM64 debug APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: android-arm64-debug
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Android project
+        run: pnpm tauri android init --ci
+      - name: Build ARM64 debug APK
+        run: pnpm tauri android build --debug --apk --target aarch64
+      - name: Verify signed APK and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*debug*.apk')
+          if [ "${#apks[@]}" -ne 1 ]; then
+            printf 'Expected one debug APK; found %s\n' "${#apks[@]}"
+            printf '%s\n' "${apks[@]}"
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "${apks[0]}"
+          unzip -l "${apks[0]}" | grep -q 'lib/arm64-v8a/.*\.so'
+          mkdir -p artifacts
+          cp "${apks[0]}" artifacts/HGhub-arm64-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HGhub-arm64-debug
+          path: artifacts/HGhub-arm64-debug.apk
+          if-no-files-found: error
