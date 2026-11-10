@@ -28,6 +28,11 @@ jobs:
                       obj=json.loads(raw)
                       data=obj.get('data', obj) if isinstance(obj,dict) else {}
                       print(json.dumps({'path':path,'mode':'edge' if envelope else 'direct','http':response.status,'status':obj.get('status') if isinstance(obj,dict) else None,'message':str(obj.get('msg',''))[:160] if isinstance(obj,dict) else '', 'keys':list(data.keys())[:30] if isinstance(data,dict) else [], 'has_video_url':bool(data.get('video_url')) if isinstance(data,dict) else None},ensure_ascii=False))
+                      for field in ('video_url','video_url_hevc','video_api','video_key','video_iv','media_id'):
+                          if isinstance(data,dict) and field in data:
+                              val=data[field]
+                              from urllib.parse import urlparse
+                              print(json.dumps({'field':field,'type':type(val).__name__,'length':len(val) if isinstance(val,str) else None,'empty':not bool(val),'host':urlparse(val).hostname if isinstance(val,str) and val.startswith(('http://','https://')) else None},ensure_ascii=False))
                       return data
               except Exception as e:
                   print(json.dumps({'path':path,'mode':'edge' if envelope else 'direct','error':str(e)[:300]},ensure_ascii=False))
