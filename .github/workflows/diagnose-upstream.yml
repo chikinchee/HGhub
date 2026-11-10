@@ -1,0 +1,41 @@
+name: Diagnose upstream playback
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check anonymous upstream API
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          base = 'https://huangguoai.com'
+          headers = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Referer':base+'/', 'Accept':'application/json'}
+          def request(path, envelope):
+              try:
+                  h = headers.copy()
+                  if envelope:
+                      body = json.dumps({'method':'GET','path':path,'body':'','content_type':''}).encode()
+                      h['Content-Type']='application/json'
+                      req = urllib.request.Request(base+'/api/edge/request',data=body,headers=h)
+                  else:
+                      req = urllib.request.Request(base+path,headers=h)
+                  with urllib.request.urlopen(req,timeout=25) as response:
+                      raw=response.read(2000000)
+                      obj=json.loads(raw)
+                      data=obj.get('data', obj) if isinstance(obj,dict) else {}
+                      print(json.dumps({'path':path,'mode':'edge' if envelope else 'direct','http':response.status,'status':obj.get('status') if isinstance(obj,dict) else None,'message':str(obj.get('msg',''))[:160] if isinstance(obj,dict) else '', 'keys':list(data.keys())[:30] if isinstance(data,dict) else [], 'has_video_url':bool(data.get('video_url')) if isinstance(data,dict) else None},ensure_ascii=False))
+                      return data
+              except Exception as e:
+                  print(json.dumps({'path':path,'mode':'edge' if envelope else 'direct','error':str(e)[:300]},ensure_ascii=False))
+                  return {}
+          data=request('/api/videos?page=1&size=5',True)
+          ids=[v.get('id') for v in data.get('items',[]) if isinstance(v,dict) and v.get('id')][:3] if isinstance(data,dict) else []
+          print('sample_count:',len(ids))
+          for v in ids or [117,10769]:
+              for mode in [True,False]:
+                  request(f'/api/videos/{v}/play?ep=1&page_texts=0',mode)
+          PY
